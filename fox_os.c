@@ -1,8 +1,22 @@
 #include "fox_os.h"
 
+
+
+//Opcode Entry Structure. Contains juicy info about our opcodes
+typedef struct {
+    void (*handler)(CPU_Registers *cpu, uint16_t operand, uint8_t *memory); // Function pointer
+    uint8_t operand_size; // Number of bytes for operands
+} OpcodeEntry;
+
 // Dispatch table
-typedef void (*OpcodeHandler)(CPU_Registers *cpu, uint16_t operand, uint8_t *memory);
-OpcodeHandler opcode_table[256];
+OpcodeEntry opcode_table[256]; // Table of 256 opcode entries
+
+void initialize_opcode_table() {
+    opcode_table[OPCODE_LOAD]  = (OpcodeEntry){handle_load, 1};  // LOAD uses 1-byte operand
+    opcode_table[OPCODE_ADD]   = (OpcodeEntry){handle_add, 1};   // ADD uses 1-byte operand
+    opcode_table[OPCODE_STORE] = (OpcodeEntry){handle_store, 2}; // STORE uses 2-byte address
+    opcode_table[OPCODE_HALT]  = (OpcodeEntry){handle_halt, 0};  // HALT uses no operand
+}
 
 void initialize_cpu(CPU_Registers *cpu) {
     for (int i = 0; i < NUM_GPRS; i++) {
@@ -17,12 +31,6 @@ void initialize_cpu(CPU_Registers *cpu) {
     cpu->FLAGS.ZERO = 0;
 }
 
-void initialize_opcode_table() {
-    opcode_table[OPCODE_LOAD] = handle_load;
-    opcode_table[OPCODE_ADD] = handle_add;
-    opcode_table[OPCODE_STORE] = handle_store;
-    opcode_table[OPCODE_HALT] = handle_halt;
-}
 
 // Handlers
 void handle_load(CPU_Registers *cpu, uint16_t operand) {
@@ -63,8 +71,8 @@ void fetch_decode_execute(CPU_Registers *cpu, uint8_t *memory) {
         cpu->PROGRAMCOUNTER += 1;
 
         // Decode and Execute
-        OpcodeHandler handler = opcode_table[opcode];
-        if (handler == NULL) {
+        OpcodeEntry entry = opcode_table[opcode];
+        if (entry.handler == NULL) {
             printf("ERROR: Unknown opcode 0x%X\n", opcode);
             exit(1);
         }
@@ -73,23 +81,15 @@ void fetch_decode_execute(CPU_Registers *cpu, uint8_t *memory) {
         uint16_t operand = 0;
 
         //if the instruction is a store, we need get grab the next two bytes for the address.
-        if (opcode == OPCODE_STORE) 
+        for (int i = 0; i < entry.operand_size; i++)
         {
-            // Fetch two bytes for the 16-bit address
-            uint8_t low_byte = memory[cpu->PROGRAMCOUNTER];
-            cpu->PROGRAMCOUNTER += 1;
-            uint8_t high_byte = memory[cpu->PROGRAMCOUNTER];
-            cpu->PROGRAMCOUNTER += 1;
-            operand = (high_byte << 8) | low_byte;
-        } 
-        else {
-            // Fetch a single byte operand for other instructions
-            operand = memory[cpu->PROGRAMCOUNTER];
-            cpu->PROGRAMCOUNTER += 1;
+            //combine the fetched and shifted byte via bitwise or
+            operand |= memory[cpu->PROGRAMCOUNTER] << (i * 8);
+            cpu->PROGRAMCOUNTER +=1;
         }
 
         // Execute the instruction
-        handler(cpu, operand, memory);
+        entry.handler(cpu, operand, memory);
     }
 }
 
